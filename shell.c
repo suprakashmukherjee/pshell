@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <signal.h>
 #include <errno.h>
 
 #define MAX_ARGS 10
@@ -11,7 +12,11 @@
 #define MAX_PATH_LIST 256
 #define MAX_TOKEN_SIZE 256
 
-static int num_args_type1 = 0;
+static int num_args_type_np = 0;
+static int num_args_type_dp = 0;
+static int num_args_type_tp = 0;
+static int num_args_type_sp = 0;
+
 static char* command_type = NULL;
 static char* PATH = NULL;
 
@@ -19,9 +24,13 @@ void main_loop();
 char* read_command();
 char** parse_command(char*);
 int shell_exec(char**, char*);
-void print(char**);
+void print(char**, int);
+void string_tokenizer(char*, char**, char*, int*);
+char* trimwhitespace(char*);
+
 
 int main(int argc, char **argv) {
+    
     main_loop();
     return EXIT_SUCCESS;
 }
@@ -57,9 +66,25 @@ char* read_command() {
             exit(EXIT_FAILURE);
         }
     }
-
+    input = trimwhitespace(input);
+    // printf("%d\n", strlen(input));
     return input;
 }
+
+char* trimwhitespace(char *str) {
+    char* end;
+    while(isspace((unsigned char)*str)) str++;
+
+    if(*str == 0)
+        return str;
+
+    end = str + strlen(str) - 1;
+    while(end > str && isspace((unsigned char)*end)) end--;
+    end[1] = '\0';
+
+    return str;
+}
+
 
 char** parse_command(char* command) {
     char** parsed_command;
@@ -67,33 +92,37 @@ char** parse_command(char* command) {
 
     if(strstr(command, "|") != NULL) {
         command_type = "SP";
-
+        string_tokenizer(command, parsed_command, "|", &num_args_type_sp);
     }
     else if(strstr(command, "||") != NULL) {
         command_type = "DP";
-
+        string_tokenizer(command, parsed_command, "||", &num_args_type_dp);
     }
     else if(strstr(command, "|||") != NULL) {
         command_type = "TP";
+        string_tokenizer(command, parsed_command, "|||", &num_args_type_tp);
     }
     else {
         command_type = "NP";
-        int i = 0;
-        char* token = strtok(command, " ");
-        while(token != NULL) {
-            parsed_command[i] = (char*) calloc(strlen(token), sizeof(char));
-            parsed_command[i] = token;
-            i++;
-            token = strtok(NULL, " ");
-        }
-        num_args_type1 = i;
+        string_tokenizer(command, parsed_command, " ", &num_args_type_np);
     }
-
     return parsed_command;
 }
 
+void string_tokenizer(char* command, char** parsed_command, char* delim, int* num_args) {
+    int i = 0;
+    char* token = strtok(command, delim);
+    while(token != NULL) {
+        parsed_command[i] = (char*) calloc(strlen(token), sizeof(char));
+        parsed_command[i] = token;
+        i++;
+        token = strtok(NULL, delim);
+    }
+    *num_args = i;
+}
+
 int shell_exec(char** parsed_command, char* type) {
-    // print(parsed_command);
+    // print(parsed_command, num_args_type_np);
 
     if(strcmp(type, "NP") == 0) {
         char** path_list = (char**) calloc(MAX_PATH_LIST+1, sizeof(char *));
@@ -108,21 +137,22 @@ int shell_exec(char** parsed_command, char* type) {
             i++;
             token = strtok(NULL, ":");
         }
-        print(path_list);
+        // print(path_list, num_args_type_np);
         pid_t childpid;
         int status;
         i = 0;
         
         while(path_list[i] != NULL) {
+            printf("************************************************************\n");
             char* main_comm = parsed_command[0];
             char* buff = (char*) calloc(MAX_TOKEN_SIZE, sizeof(char));
             strcpy(buff, path_list[i]);
             strcat(buff, "/");
             strcat(buff, parsed_command[0]);
     
-            printf("......%s\n", buff);
+            // printf("......%s\n", buff);
             parsed_command[0] = buff;
-            if(access(buff, X_OK) == 0) {
+            if(access(buff, R_OK) == 0) {
 
                 if((childpid = fork()) == -1) {
                 perror("pshell : ERR : Command Type NP Cannot fork\n");
@@ -130,17 +160,19 @@ int shell_exec(char** parsed_command, char* type) {
                 }
                 else if(childpid == 0) {
                     printf("Executing %s\n", buff);
-                    // print(parsed_command);
-
-                    char* args_vec[num_args_type1+1];
-                    int j;
-                    for(j = 0; j < num_args_type1+1; j++) {
-                        args_vec[j] = parsed_command[j];
+                    // print(parsed_command, num_args_type_np);
+                    
+                    char* args_vec[num_args_type_np+1];
+                    if(num_args_type_np == 1) {
+                        args_vec[0] = parsed_command[0];
+                        args_vec[1] = NULL;
                     }
-                    //remove extra newline character
-                    args_vec[j-2][strlen(args_vec[j-2])-1] = NULL;
-                    args_vec[num_args_type1] = NULL;
-                    // print_arr(args_vec);
+                    else {
+                        for(int j = 0; j < num_args_type_np+1; j++) {
+                            args_vec[j] = parsed_command[j];
+                        }
+                        args_vec[num_args_type_np] = NULL;
+                    }
                     
                     if(execv(buff, args_vec) < 0) {
                         printf("pshell : ERRNO in exec : %d\n", errno);
@@ -148,7 +180,7 @@ int shell_exec(char** parsed_command, char* type) {
                 }
                 else {
                     while(wait(&status) != childpid);
-                    printf("exit\n");
+                    printf("Command Successful\n");
                 }
             }
             else {
@@ -160,6 +192,7 @@ int shell_exec(char** parsed_command, char* type) {
             parsed_command[0] = main_comm;
             free(buff);
             i++;
+            printf("************************************************************\n");
         }
         free(path_list);
         free(path);
@@ -180,15 +213,9 @@ int shell_exec(char** parsed_command, char* type) {
     return 1;
 }
 
-void print(char** parse_command) {
-   for(int i = 0; i < num_args_type1; i++) {
-       printf("%s\n", parse_command[i]);
+void print(char** parse_command, int num) {
+   for(int i = 0; i < num; i++) {
+       printf("%s\n", *(&parse_command[i]));
    }
     // fflush(stdout);
-}
-
-void print_arr(char* arr[]) {
-    for(int i = 0; i < num_args_type1+1; i++) {
-        printf("-%s-\t", arr[i]);
-    }
 }
