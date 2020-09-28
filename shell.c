@@ -373,6 +373,15 @@ int shell_exec(char** parsed_command, char* type) {
         if(close(f_pfd[1]) == -1) {
             printf("pshell : ERR : error closing write end of first pipe Main\n");
         }
+        if(wait(NULL) == -1) {
+            printf("pshell : ERR : waiting for child Main\n");
+        }
+        if(wait(NULL) == -1) {
+            printf("pshell : ERR : waiting for child Main\n");
+        }
+        if(wait(NULL) == -1) {
+            printf("pshell : ERR : waiting for child Main\n");
+        }
         
         switch(fork()) {
             case -1:
@@ -423,15 +432,6 @@ int shell_exec(char** parsed_command, char* type) {
         }
         if(close(s_pfd[1]) == -1) {
             printf("pshell : ERR : error closing write end of second pipe Main\n");
-        }
-        if(wait(NULL) == -1) {
-            printf("pshell : ERR : waiting for child Main\n");
-        }
-        if(wait(NULL) == -1) {
-            printf("pshell : ERR : waiting for child Main\n");
-        }
-        if(wait(NULL) == -1) {
-            printf("pshell : ERR : waiting for child Main\n");
         }
         if(wait(NULL) == -1) {
             printf("pshell : ERR : waiting for child Main\n");
