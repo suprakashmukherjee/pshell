@@ -31,7 +31,6 @@ void print(char**, int);
 void string_tokenizer(char*, char**, char*, int*);
 char* trimwhitespace(char*);
 
-
 int main(int argc, char **argv) {
     main_loop();
     return EXIT_SUCCESS;
@@ -453,10 +452,315 @@ int shell_exec(char** parsed_command, char* type) {
 
     }
     else if(strcmp(type, "TP") == 0) {
+        char* left_pipe = parsed_command[0];
+        char* right_pipe = parsed_command[1];
+        char** parsed_right_pipe;
+        int num;
+        parsed_right_pipe = (char**) calloc(MAX_ARGS+1, sizeof(char *));
+        string_tokenizer(right_pipe, parsed_right_pipe, ",", &num);
+        char* first_program = parsed_right_pipe[0];
+        char* second_program = parsed_right_pipe[1];
+        char* third_program = parsed_right_pipe[2];
+
+        if (mkfifo ("/tmp/fifo1", S_IRUSR| S_IWUSR) < 0) {
+            printf("pshell : ERR %d: Error creating FIFO1\n", errno);
+            return 1;
+        }
+        if (mkfifo ("/tmp/fifo2", S_IRUSR| S_IWUSR) < 0) {
+            printf("pshell : ERR %d: Error creating FIFO2\n", errno);
+            return 1;
+        }
+
+        switch(fork()) {
+            case -1:
+                printf("pshell : ERR %d: Error in fork first prgm\n", errno);
+            case 0: {
+                int fd;
+                fd = open("/tmp/fifo1", O_RDONLY);
+
+                if(fd != STDIN_FILENO) {
+                    if(dup2(fd, STDIN_FILENO) == -1) {
+                        printf("pshell : ERR : Error in dup read end in first prgm\n");
+                        exit(EXIT_FAILURE);
+                    }
+                    if(close(fd) == -1) {
+                        printf("pshell : ERR : Error in closing read end in first prgm\n");
+                        exit(EXIT_FAILURE);
+                    }
+                }
+
+                char** first_prog_args;
+                int num_first_args_right;
+                first_prog_args = (char**) calloc(MAX_ARGS+1, sizeof(char *));
+                string_tokenizer(first_program, first_prog_args, " ", &num_first_args_right);
+                
+                char* args_vec[num_first_args_right+1];
+                if(num_first_args_right == 1) {
+                    args_vec[0] = first_prog_args[0];
+                    args_vec[1] = NULL;
+                }
+                else {
+                    for(int j = 0; j < num_first_args_right+1; j++) {
+                        args_vec[j] = first_prog_args[j];
+                    }
+                    args_vec[num_first_args_right] = NULL;
+                }
+                // printf("Executing %s\n", first_program);
+                execvp(first_prog_args[0], args_vec);
+                printf("pshell : ERR : error in exec in first program\n");
+                exit(EXIT_FAILURE);
+            }
+            default:
+                break;
+        }
+
+        switch(fork()) {
+            case -1:
+                printf("pshell : ERR %d: Error in fork second prgm\n", errno);
+            case 0: {
+                int fd;
+                fd = open("/tmp/fifo2", O_RDONLY);
+
+                if(fd != STDIN_FILENO) {
+                    if(dup2(fd, STDIN_FILENO) == -1) {
+                        printf("pshell : ERR : Error in dup read end in second prgm\n");
+                        exit(EXIT_FAILURE);
+                    }
+                    if(close(fd) == -1) {
+                        printf("pshell : ERR : Error in closing read end in second prgm\n");
+                        exit(EXIT_FAILURE);
+                    }
+                }
+
+                char** second_prog_args;
+                int num_second_args_right;
+                second_prog_args = (char**) calloc(MAX_ARGS+1, sizeof(char *));
+                string_tokenizer(second_program, second_prog_args, " ", &num_second_args_right);
+                
+                char* args_vec[num_second_args_right+1];
+                if(num_second_args_right == 1) {
+                    args_vec[0] = second_prog_args[0];
+                    args_vec[1] = NULL;
+                }
+                else {
+                    for(int j = 0; j < num_second_args_right+1; j++) {
+                        args_vec[j] = second_prog_args[j];
+                    }
+                    args_vec[num_second_args_right] = NULL;
+                }
+                // printf("Executing %s\n", second_program);
+                execvp(second_prog_args[0], args_vec);
+                printf("pshell : ERR : error in exec in second program\n");
+                exit(EXIT_FAILURE);
+            }
+            default:
+                break;
+        }
+
+        int f_pfd[2];
+        if(pipe(f_pfd) == -1) {
+            printf("pshell : ERR %d: Error in Pipe\n", errno);
+        }
+        
+        switch(fork()) {
+            case -1:
+                printf("pshell : ERR : Error in Fork for DP Command type\n");
+            case 0: {
+                if(close(f_pfd[0]) == -1) {
+                    printf("pshell : ERR : Error in closing read fd for left prgm\n");
+                    exit(EXIT_FAILURE);
+                }
+                
+                if(f_pfd[1] != STDOUT_FILENO) {
+                    if(dup2(f_pfd[1], STDOUT_FILENO) == -1) {
+                        printf("pshell : ERR : Cannot dup write end in left prgm\n");
+                        exit(EXIT_FAILURE);
+                    }
+                    if(close(f_pfd[1]) == -1) {
+                        printf("pshell : ERR : cannot close write end in left prgm\n");
+                        exit(EXIT_FAILURE);
+                    }
+                }
+                
+                char** left_pipe_args;
+                int num_args_left;
+                left_pipe_args = (char**) calloc(MAX_ARGS+1, sizeof(char *));
+                string_tokenizer(left_pipe, left_pipe_args, " ", &num_args_left);
+                
+                char* args_vec[num_args_left+1];
+                if(num_args_left == 1) {
+                    args_vec[0] = left_pipe_args[0];
+                    args_vec[1] = NULL;
+                }
+                else {
+                    for(int j = 0; j < num_args_left+1; j++) {
+                        args_vec[j] = left_pipe_args[j];
+                    }
+                    args_vec[num_args_left] = NULL;
+                }
+
+                // printf("Executing %s\n", left_pipe);
+                execvp(left_pipe_args[0], args_vec);
+                printf("pshell : ERR : cannot exec left prgm\n");
+                exit(EXIT_FAILURE);
+            }
+            default:
+                break;
+        }
+
+        int s_pfd[2];
+        if(pipe(s_pfd) == -1) {
+            printf("pshell : ERR %d: Error in Pipe\n", errno);
+        }
+
+        switch(fork()) {
+            case -1:
+                printf("pshell : ERR %d: Error in fork tee prgm\n", errno);
+            case 0: {
+                if(close(f_pfd[1]) == -1) {
+                    printf("pshell : ERR %d: cannot close f_pfd write end in tee prgm\n", errno);
+                    exit(EXIT_FAILURE);
+                }
+                if(close(s_pfd[0]) == -1) {
+                    printf("pshell : ERR %d: cannot close s_pfd write end in tee prgm\n", errno);
+                    exit(EXIT_FAILURE);
+                }
+                
+                if(f_pfd[0] != STDIN_FILENO) {
+                    if(dup2(f_pfd[0], STDIN_FILENO) == -1) {
+                        printf("pshell : ERR %d: Error in f_pfd dup read end in tee prgm\n", errno);
+                        exit(EXIT_FAILURE);
+                    }
+                    if(close(f_pfd[0]) == -1) {
+                        printf("pshell : ERR %d: Error in f_pfd closing read end in tee prgm\n", errno);
+                        exit(EXIT_FAILURE);
+                    }
+                }
+                
+                if(s_pfd[1] != STDOUT_FILENO) {
+                    if(dup2(s_pfd[1], STDOUT_FILENO) == -1) {
+                        printf("pshell : ERR %d: Error in s_pfd dup read end in tee prgm\n", errno);
+                        exit(EXIT_FAILURE);
+                    }
+                    if(close(s_pfd[1]) == -1) {
+                        printf("pshell : ERR %d: Error in s_pfd closing read end in tee prgm\n", errno);
+                        exit(EXIT_FAILURE);
+                    }
+                }
+
+                printf("Executing Tee\n");
+                execlp("tee", "tee", "/tmp/fifo1", "/tmp/fifo2", NULL);
+                printf("pshell : ERR : error in exec in tee program\n");
+                exit(EXIT_FAILURE);
+            }
+            default:
+                break;
+        }
+
+        if(close(f_pfd[0]) == -1) {
+            printf("pshell : ERR : error closing read end of first pipe Main\n");
+        }
+        if(close(f_pfd[1]) == -1) {
+            printf("pshell : ERR : error closing write end of first pipe Main\n");
+        }
+        if(wait(NULL) == -1) {
+            printf("pshell : ERR : waiting for child Main\n");
+        }
+        if(wait(NULL) == -1) {
+            printf("pshell : ERR : waiting for child Main\n");
+        }
+        if(wait(NULL) == -1) {
+            printf("pshell : ERR : waiting for child Main\n");
+        }
+        if(wait(NULL) == -1) {
+            printf("pshell : ERR : waiting for child Main\n");
+        }
+        
+        switch(fork()) {
+            case -1:
+                printf("pshell : ERR : Error in fork third prgm\n");
+            case 0: {
+                if(close(s_pfd[1]) == -1) {
+                    printf("pshell : ERR %d: cannot close s_pfd write end in third prgm\n", errno);
+                    exit(EXIT_FAILURE);
+                }
+                
+                if(s_pfd[0] != STDIN_FILENO) {
+                    if(dup2(s_pfd[0], STDIN_FILENO) == -1) {
+                        printf("pshell : ERR : Error in dup read end in third prgm\n");
+                        exit(EXIT_FAILURE);
+                    }
+                    if(close(s_pfd[0]) == -1) {
+                        printf("pshell : ERR %d: Error in closing read end in third prgm\n", errno);
+                        exit(EXIT_FAILURE);
+                    }
+                }
+                char** third_prog_args;
+                int num_third_args_right;
+                third_prog_args = (char**) calloc(MAX_ARGS+1, sizeof(char *));
+                string_tokenizer(third_program, third_prog_args, " ", &num_third_args_right);
+                
+                char* args_vec[num_third_args_right+1];
+                if(num_third_args_right == 1) {
+                    args_vec[0] = third_prog_args[0];
+                    args_vec[1] = NULL;
+                }
+                else {
+                    for(int j = 0; j < num_third_args_right+1; j++) {
+                        args_vec[j] = third_prog_args[j];
+                    }
+                    args_vec[num_third_args_right] = NULL;
+                }
+                // printf("Executing %s\n", third_program);
+                execvp(third_prog_args[0], args_vec);
+                printf("pshell : ERR %d: error in exec in third program\n", errno);
+                exit(EXIT_FAILURE);
+            }
+            default:
+                break;
+        }
+        
+        if(close(s_pfd[0]) == -1) {
+            printf("pshell : ERR %d: error closing read end of second pipe Main\n", errno);
+        }
+        if(close(s_pfd[1]) == -1) {
+            printf("pshell : ERR %d: error closing write end of second pipe Main\n", errno);
+        }
+        if(wait(NULL) == -1) {
+            printf("pshell : ERR %d: waiting for child Main\n", errno);
+        }
+
+        switch(fork()) {
+            case -1:
+                printf("pshell : ERR %d: Error in Fork for DP Command type\n", errno);
+            case 0:
+                execlp("rm", "rm", "-r", "/tmp/fifo1", NULL);
+                printf("pshell : ERR %d: Cannot delete FIFO1\n", errno);
+                exit(EXIT_FAILURE);
+            default:
+                break;
+        }
+        if(wait(NULL) == -1) {
+            printf("pshell : ERR %d: waiting for child Main\n", errno);
+        }
+
+        switch(fork()) {
+            case -1:
+                printf("pshell : ERR %d: Error in Fork for DP Command type\n", errno);
+            case 0:
+                execlp("rm", "rm", "-r", "/tmp/fifo2", NULL);
+                printf("pshell : ERR %d: Cannot delete FIFO2\n", errno);
+                exit(EXIT_FAILURE);
+            default:
+                break;
+        }
+        if(wait(NULL) == -1) {
+            printf("pshell : ERR %d: waiting for child Main\n", errno);
+        }
 
     }
     else {
-        printf("pshell : ERR : Command not recognized");
+        printf("pshell : ERR %d: Command not recognized\n", errno);
         fflush(stdout);
     }
     return 1;
